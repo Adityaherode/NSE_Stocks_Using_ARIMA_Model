@@ -6,3 +6,4 @@ matplotlib
 statsmodels
 plotly
 scikit-learn
+datetime
