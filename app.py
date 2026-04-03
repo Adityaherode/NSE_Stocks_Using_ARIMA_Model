@@ -9,101 +9,117 @@ from statsmodels.tsa.arima.model import ARIMA
 import warnings
 warnings.filterwarnings("ignore")
 
-# ---------------- UI ----------------
 st.set_page_config(page_title="Stock Predictor", layout="wide")
 
-st.title("📈 Stock Market Prediction App (ARIMA)")
+# 🎯 Title
+st.title("📈 Stock Market Prediction App (ARIMA Model)")
 
-# Sidebar
-st.sidebar.header("User Input")
-
+# 📊 Stock list
 stocks = {
     "TCS": "TCS.NS",
     "Wipro": "WIPRO.NS",
     "Infosys": "INFY.NS",
-    "HCL Tech": "HCLTECH.NS",
+    "HCLTech": "HCLTECH.NS",
     "Tech Mahindra": "TECHM.NS",
     "LTIMindtree": "LTIM.NS",
     "Persistent": "PERSISTENT.NS",
-    "Oracle Financial": "OFSS.NS",
+    "Oracle Financial Services": "OFSS.NS",
     "Coforge": "COFORGE.NS",
     "Mphasis": "MPHASIS.NS"
 }
 
-stock_name = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
-ticker = stocks[stock_name]
+# 🎛️ Sidebar controls
+st.sidebar.header("⚙️ Controls")
 
-start_date = st.sidebar.date_input("Start Date", d.date(2025, 1, 1))
+selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
+
+start_date = st.sidebar.date_input("Start Date", d.date(2023, 1, 1))
 end_date = st.sidebar.date_input("End Date", d.date.today())
 
-p = st.sidebar.slider("AR (p)", 0, 10, 5)
-d_val = st.sidebar.slider("I (d)", 0, 2, 1)
-q = st.sidebar.slider("MA (q)", 0, 10, 0)
+forecast_days = st.sidebar.slider("Forecast Days", 5, 60, 10)
 
-forecast_days = st.sidebar.slider("Forecast Days", 5, 30, 10)
+# 📥 Load data
+@st.cache_data
+def load_data(ticker, start, end):
+    df = yf.download(ticker, start=start, end=end)
+    df = df[['Close']]
+    df.dropna(inplace=True)
+    return df
 
-# ---------------- Data ----------------
-st.subheader(f"📊 Data for {stock_name}")
+df = load_data(stocks[selected_stock], start_date, end_date)
 
-data = yf.download(ticker, start=start_date, end=end_date)
+# 📉 Plot raw data
+st.subheader(f"📊 {selected_stock} Closing Price")
+st.line_chart(df['Close'])
 
-if data.empty:
-    st.error("No data found!")
-    st.stop()
-
-data = data[['Close']].copy()
-data['Returns'] = data['Close'].pct_change()
-
-st.write(data.tail())
-
-# ---------------- ADF Test ----------------
+# 🔍 ADF Test
 def check_stationarity(series):
     result = adfuller(series.dropna())
-    return result[0], result[1]
+    return result[1]
 
-st.subheader("📉 Stationarity Test (ADF)")
+p_value = check_stationarity(df['Close'])
 
-adf_stat, p_value = check_stationarity(data['Close'])
+st.write(f"📌 ADF Test p-value: {p_value:.5f}")
 
-st.write(f"ADF Statistic: {adf_stat:.4f}")
-st.write(f"p-value: {p_value:.4f}")
-
-if p_value < 0.05:
-    st.success("Series is Stationary ✅")
+# ⚠️ Make stationary if needed
+if p_value > 0.05:
+    st.warning("Data is NOT stationary → Applying Differencing")
+    df['Close'] = df['Close'].diff()
+    df.dropna(inplace=True)
 else:
-    st.warning("Series is NOT Stationary ❌")
+    st.success("Data is Stationary ✅")
 
-# ---------------- Differencing ----------------
-data['Close_Diff'] = data['Close'].diff()
+# 🤖 Model Training
+st.subheader("⚙️ Training ARIMA Model...")
 
-# ---------------- Model ----------------
-st.subheader("🤖 ARIMA Model")
-
-model = ARIMA(data['Close'], order=(p, d_val, q))
+model = ARIMA(df['Close'], order=(5,1,0))
 model_fit = model.fit()
 
-st.text(model_fit.summary())
-
-# ---------------- Forecast ----------------
+# 🔮 Forecast
 forecast = model_fit.forecast(steps=forecast_days)
 
-future_dates = pd.date_range(start=data.index[-1], periods=forecast_days + 1, freq='B')[1:]
+# 📅 Forecast Dates
+future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
 
-# ---------------- Plot ----------------
-st.subheader("📊 Forecast Visualization")
+# 📈 Plot
+fig, ax = plt.subplots(figsize=(10,5))
 
-fig, ax = plt.subplots(figsize=(12, 6))
+ax.plot(df.index, df['Close'], label="Actual")
+ax.plot(future_dates, forecast, label="Forecast", linestyle='dashed')
 
-ax.plot(data['Close'], label="Actual Price")
-ax.plot(future_dates, forecast, linestyle='dashed', color='red', label="Forecast")
-
-ax.set_title(f"{stock_name} Price Prediction")
+ax.set_title(f"{selected_stock} Price Prediction")
 ax.legend()
 
 st.pyplot(fig)
 
-# ---------------- Insights ----------------
-st.subheader("Insights")
+# 📊 Show forecast table
+forecast_df = pd.DataFrame({
+    "Date": future_dates,
+    "Predicted Price": forecast
+})
 
-st.write(f"Last Price: ₹{data['Close'].iloc[-1]:.2f}")
-st.write(f"Predicted Price after {forecast_days} days: ₹{forecast.iloc[-1]:.2f}")
+st.subheader("📅 Forecast Data")
+st.dataframe(forecast_df)
+
+# 📉 Returns Visualization
+st.subheader("📉 Daily Returns")
+df['Returns'] = df['Close'].pct_change()
+
+st.line_chart(df['Returns'])
+
+# 📊 Moving Average
+st.subheader("📊 Moving Averages")
+
+df['MA50'] = df['Close'].rolling(50).mean()
+df['MA200'] = df['Close'].rolling(200).mean()
+
+fig2, ax2 = plt.subplots(figsize=(10,5))
+ax2.plot(df['Close'], label="Close")
+ax2.plot(df['MA50'], label="MA50")
+ax2.plot(df['MA200'], label="MA200")
+ax2.legend()
+
+st.pyplot(fig2)
+
+# 📌 Footer
+st.write("Built with ❤️ using Streamlit + ARIMA")
