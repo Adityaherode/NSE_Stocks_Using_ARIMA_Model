@@ -1,122 +1,136 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
+import datetime as dt
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.stattools import adfuller
+import warnings
+warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="NSE Stock Pro Dashboard", layout="wide")
+# -------------------------
+# PAGE CONFIG
+# -------------------------
+st.set_page_config(page_title="Stock Forecast Dashboard", layout="wide")
 
-# ---------- Sidebar ----------
-st.sidebar.title("📊 Stock Controls")
+st.title("📊 Stock Market Analysis & Forecasting")
 
-stock = st.sidebar.text_input("Enter NSE Stock Symbol", "TCS.NS")
-start = st.sidebar.date_input("Start Date", pd.to_datetime("2023-01-01"))
-end = st.sidebar.date_input("End Date", pd.to_datetime("today"))
+# -------------------------
+# STOCK LIST
+# -------------------------
+stocks = {
+    "TCS": "TCS.NS",
+    "Wipro": "WIPRO.NS",
+    "Infosys": "INFY.NS",
+    "HCLTech": "HCLTECH.NS",
+    "Tech Mahindra": "TECHM.NS",
+    "LTIMindtree": "LTIM.NS",
+    "Persistent": "PERSISTENT.NS",
+    "OFSS": "OFSS.NS",
+    "Coforge": "COFORGE.NS",
+    "Mphasis": "MPHASIS.NS"
+}
 
-show_ma20 = st.sidebar.checkbox("Show MA20", True)
-show_ma50 = st.sidebar.checkbox("Show MA50", True)
-show_ma200 = st.sidebar.checkbox("Show MA200", False)
+# -------------------------
+# SIDEBAR
+# -------------------------
+st.sidebar.header("⚙️ Settings")
 
-# ---------- Fetch Data ----------
-@st.cache_data
-def load_data(stock, start, end):
-    return yf.download(stock, start=start, end=end)
+selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
 
-data = load_data(stock, start, end)
+start_date = st.sidebar.date_input("Start Date", dt.date(2025, 1, 1))
+end_date = st.sidebar.date_input("End Date", dt.date.today())
 
-st.title("📈 NSE Stock Analytics Dashboard")
+chart_type = st.sidebar.radio("Select Chart Type", ["Candlestick", "Line", "Bar"])
 
-if not data.empty:
+forecast_days = st.sidebar.slider("Forecast Days", 5, 30, 10)
 
-    # ---------- KPIs ----------
-    st.subheader("📌 Key Metrics")
+# -------------------------
+# DATA LOADING
+# -------------------------
+df = yf.download(stocks[selected_stock], start=start_date, end=end_date)
 
-    col1, col2, col3, col4 = st.columns(4)
+df.dropna(inplace=True)
 
-    col1.metric("Current Price", f"₹{round(data['Close'].iloc[-1],2)}")
-    col2.metric("Day High", f"₹{round(data['High'].iloc[-1],2)}")
-    col3.metric("Day Low", f"₹{round(data['Low'].iloc[-1],2)}")
-    col4.metric("Volume", f"{data['Volume'].iloc[-1]:,}")
+st.subheader(f"📌 {selected_stock} Data")
 
-    # ---------- Moving Averages ----------
-    data["MA20"] = data["Close"].rolling(20).mean()
-    data["MA50"] = data["Close"].rolling(50).mean()
-    data["MA200"] = data["Close"].rolling(200).mean()
+# -------------------------
+# CHARTS
+# -------------------------
+if chart_type == "Candlestick":
+    fig = go.Figure(data=[go.Candlestick(
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close']
+    )])
 
-    # ---------- RSI ----------
-    delta = data["Close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -1 * delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss
-    data["RSI"] = 100 - (100 / (1 + rs))
+elif chart_type == "Line":
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', name='Close'))
 
-    # ---------- Candlestick + Volume ----------
-    fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
-                        vertical_spacing=0.05,
-                        row_heights=[0.6, 0.2, 0.2])
+elif chart_type == "Bar":
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=df.index, y=df['Close'], name='Close'))
 
-    # Candlestick
-    fig.add_trace(go.Candlestick(
-        x=data.index,
-        open=data["Open"],
-        high=data["High"],
-        low=data["Low"],
-        close=data["Close"],
-        name="Candlestick"
-    ), row=1, col=1)
+fig.update_layout(title=f"{selected_stock} Price Chart", xaxis_title="Date", yaxis_title="Price")
+st.plotly_chart(fig, use_container_width=True)
 
-    # Moving Averages
-    if show_ma20:
-        fig.add_trace(go.Scatter(x=data.index, y=data["MA20"],
-                                 line=dict(width=1),
-                                 name="MA20"), row=1, col=1)
+# -------------------------
+# RETURNS
+# -------------------------
+df['Returns'] = df['Close'].pct_change()
 
-    if show_ma50:
-        fig.add_trace(go.Scatter(x=data.index, y=data["MA50"],
-                                 line=dict(width=1),
-                                 name="MA50"), row=1, col=1)
+st.subheader("📉 Daily Returns")
+st.line_chart(df['Returns'])
 
-    if show_ma200:
-        fig.add_trace(go.Scatter(x=data.index, y=data["MA200"],
-                                 line=dict(width=1),
-                                 name="MA200"), row=1, col=1)
+# -------------------------
+# ADF TEST
+# -------------------------
+st.subheader("🧪 Stationarity Test (ADF)")
 
-    # Volume
-    fig.add_trace(go.Bar(x=data.index, y=data["Volume"],
-                         name="Volume"), row=2, col=1)
+result = adfuller(df['Close'].dropna())
 
-    # RSI
-    fig.add_trace(go.Scatter(x=data.index, y=data["RSI"],
-                             name="RSI"), row=3, col=1)
+st.write(f"ADF Statistic: {result[0]}")
+st.write(f"p-value: {result[1]}")
 
-    fig.update_layout(height=800, title=f"{stock} Stock Analysis",
-                      xaxis_rangeslider_visible=False)
-
-    st.plotly_chart(fig, use_container_width=True)
-
-    # ---------- Multi Stock Comparison ----------
-    st.subheader("📊 Compare Multiple Stocks")
-
-    multi_stocks = st.multiselect(
-        "Select Stocks for Comparison",
-        ["TCS.NS", "INFY.NS", "RELIANCE.NS", "HDFCBANK.NS"],
-        default=["TCS.NS"]
-    )
-
-    if multi_stocks:
-        compare_df = pd.DataFrame()
-        for s in multi_stocks:
-            temp = yf.download(s, start=start, end=end)
-            compare_df[s] = temp["Close"]
-
-        st.line_chart(compare_df)
-
-    # ---------- Raw Data ----------
-    with st.expander("🔍 View Raw Data"):
-        st.dataframe(data)
-
+if result[1] < 0.05:
+    st.success("Series is Stationary")
 else:
-    st.error("No data found. Please check stock symbol.")
+    st.warning("Series is NOT Stationary")
+
+# -------------------------
+# ARIMA MODEL
+# -------------------------
+st.subheader("🔮 ARIMA Forecast")
+
+model = ARIMA(df['Close'], order=(5,1,0))
+model_fit = model.fit()
+
+forecast = model_fit.forecast(steps=forecast_days)
+
+future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
+
+# Plot forecast
+fig2 = go.Figure()
+
+fig2.add_trace(go.Scatter(
+    x=df.index, y=df['Close'],
+    mode='lines', name='Actual'
+))
+
+fig2.add_trace(go.Scatter(
+    x=future_dates, y=forecast,
+    mode='lines', name='Forecast'
+))
+
+fig2.update_layout(title="Forecast vs Actual")
+
+st.plotly_chart(fig2, use_container_width=True)
+
+# -------------------------
+# RAW DATA
+# -------------------------
+if st.checkbox("Show Raw Data"):
+    st.write(df.tail())
