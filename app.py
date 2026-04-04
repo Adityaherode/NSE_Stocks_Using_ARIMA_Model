@@ -1,18 +1,22 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import datetime as d
 import plotly.graph_objects as go
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.arima.model import ARIMA
-
-st.set_page_config(page_title="Stock Forecast Dashboard", layout="wide")
-
-st.title("📊 IT Stocks Forecasting Dashboard")
+import warnings
+warnings.filterwarnings("ignore")
 
 # -------------------------------
-# Stock List
+# Page Config
+# -------------------------------
+st.set_page_config(page_title="Stock Forecast App", layout="wide")
+
+st.title("📊 IT Stocks Forecast Dashboard")
+
+# -------------------------------
+# Stock Dictionary (CORRECT SYMBOLS)
 # -------------------------------
 stocks = {
     "TCS": "TCS.NS",
@@ -30,9 +34,13 @@ stocks = {
 # -------------------------------
 # Sidebar
 # -------------------------------
+st.sidebar.header("Settings")
+
 selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
+
 start_date = st.sidebar.date_input("Start Date", d.date(2025, 1, 1))
 end_date = st.sidebar.date_input("End Date", d.date.today())
+
 chart_type = st.sidebar.radio("Chart Type", ["Candlestick", "Line", "Bar"])
 
 # -------------------------------
@@ -40,41 +48,53 @@ chart_type = st.sidebar.radio("Chart Type", ["Candlestick", "Line", "Bar"])
 # -------------------------------
 df = yf.download(stocks[selected_stock], start=start_date, end=end_date)
 
+# FIX: ensure proper columns
+if isinstance(df.columns, pd.MultiIndex):
+    df.columns = df.columns.get_level_values(0)
+
+# Safety check
 if df.empty:
-    st.error("No data found!")
+    st.error("❌ Data not loaded. Check internet or stock symbol.")
     st.stop()
 
 # -------------------------------
-# Stationarity Function
+# Show Data Preview
 # -------------------------------
-def make_stationary(series):
+if st.checkbox("Show Raw Data"):
+    st.write(df.tail())
+
+# -------------------------------
+# Stationarity Check
+# -------------------------------
+def check_stationarity(series):
     result = adfuller(series.dropna())
-    p_value = result[1]
+    return result[1]
 
-    if p_value < 0.05:
-        return series, "Already Stationary ✅"
-    else:
-        diff_series = series.diff().dropna()
-        return diff_series, "Converted to Stationary using Differencing 🔁"
+p_value = check_stationarity(df['Close'])
 
-# -------------------------------
-# Apply Stationarity
-# -------------------------------
-stationary_data, status = make_stationary(df['Close'])
-
-st.write(f"### 📌 Stationarity Status: {status}")
+if p_value < 0.05:
+    st.success("✅ Data is Stationary")
+    stationary_series = df['Close']
+else:
+    st.warning("⚠️ Data is NOT Stationary → Applying Differencing")
+    stationary_series = df['Close'].diff().dropna()
 
 # -------------------------------
 # ARIMA Model
 # -------------------------------
-model = ARIMA(df['Close'], order=(5, 1, 0))
-model_fit = model.fit()
+try:
+    model = ARIMA(df['Close'], order=(5,1,0))
+    model_fit = model.fit()
 
-forecast = model_fit.forecast(steps=10)
-future_dates = pd.date_range(start=df.index[-1], periods=11, freq='B')[1:]
+    forecast = model_fit.forecast(steps=10)
+    future_dates = pd.date_range(start=df.index[-1], periods=11, freq='B')[1:]
+
+except Exception as e:
+    st.error(f"Model Error: {e}")
+    st.stop()
 
 # -------------------------------
-# Chart Visualization (Single Graph)
+# Plot Graph (MAIN FIX)
 # -------------------------------
 fig = go.Figure()
 
@@ -119,13 +139,8 @@ fig.update_layout(
     height=600
 )
 
+# IMPORTANT LINE (graph display)
 st.plotly_chart(fig, use_container_width=True)
-
-# -------------------------------
-# Show Data
-# -------------------------------
-if st.checkbox("Show Raw Data"):
-    st.write(df.tail())
 
 # -------------------------------
 # Metrics
@@ -135,5 +150,5 @@ st.subheader("📈 Key Metrics")
 col1, col2, col3 = st.columns(3)
 
 col1.metric("Latest Price", round(df['Close'].iloc[-1], 2))
-col2.metric("Mean Price", round(df['Close'].mean(), 2))
+col2.metric("Average Price", round(df['Close'].mean(), 2))
 col3.metric("Volatility", round(df['Close'].std(), 2))
