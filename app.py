@@ -1,136 +1,126 @@
+# streamlit_app.py
+
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import datetime as dt
+import numpy as np
+import datetime as d
 import plotly.graph_objects as go
-from statsmodels.tsa.arima.model import ARIMA
 from statsmodels.tsa.stattools import adfuller
+from statsmodels.tsa.arima.model import ARIMA
 import warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings('ignore')
 
-# -------------------------
-# PAGE CONFIG
-# -------------------------
 st.set_page_config(page_title="Stock Forecast Dashboard", layout="wide")
 
-st.title("📊 Stock Market Analysis & Forecasting")
+st.title("📈 Stock Analysis & Forecasting App")
 
-# -------------------------
-# STOCK LIST
-# -------------------------
+# Sidebar
 stocks = {
     "TCS": "TCS.NS",
     "Wipro": "WIPRO.NS",
     "Infosys": "INFY.NS",
-    "HCLTech": "HCLTECH.NS",
+    "HCLTECH": "HCLTECH.NS",
     "Tech Mahindra": "TECHM.NS",
-    "LTIMindtree": "LTIM.NS",
+    "LTIM": "LTIM.NS",
     "Persistent": "PERSISTENT.NS",
     "OFSS": "OFSS.NS",
     "Coforge": "COFORGE.NS",
     "Mphasis": "MPHASIS.NS"
 }
 
-# -------------------------
-# SIDEBAR
-# -------------------------
-st.sidebar.header("⚙️ Settings")
-
 selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
-
-start_date = st.sidebar.date_input("Start Date", dt.date(2025, 1, 1))
-end_date = st.sidebar.date_input("End Date", dt.date.today())
-
-chart_type = st.sidebar.radio("Select Chart Type", ["Candlestick", "Line", "Bar"])
-
+chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar"])
 forecast_days = st.sidebar.slider("Forecast Days", 5, 30, 10)
 
-# -------------------------
-# DATA LOADING
-# -------------------------
-df = yf.download(stocks[selected_stock], start=start_date, end=end_date)
+start = st.sidebar.date_input("Start Date", d.date(2025,1,1))
+end = st.sidebar.date_input("End Date", d.date.today())
 
-df.dropna(inplace=True)
+# Load data
+@st.cache_data
+def load_data(ticker):
+    data = yf.download(ticker, start=start, end=end)
+    data.columns = data.columns.get_level_values(0)
+    return data
 
-st.subheader(f"📌 {selected_stock} Data")
 
-# -------------------------
-# CHARTS
-# -------------------------
+data = load_data(stocks[selected_stock])
+
+st.subheader(f"📊 {selected_stock} Stock Data")
+
+# Chart Visualization
+fig = go.Figure()
+
 if chart_type == "Candlestick":
-    fig = go.Figure(data=[go.Candlestick(
-        x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close']
-    )])
+    fig.add_trace(go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close']
+    ))
 
 elif chart_type == "Line":
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df.index, y=df['Close'], mode='lines', name='Close'))
+    fig.add_trace(go.Scatter(x=data.index, y=data['Close'], mode='lines', name='Close'))
 
 elif chart_type == "Bar":
-    fig = go.Figure()
-    fig.add_trace(go.Bar(x=df.index, y=df['Close'], name='Close'))
+    fig.add_trace(go.Bar(x=data.index, y=data['Close'], name='Close'))
 
-fig.update_layout(title=f"{selected_stock} Price Chart", xaxis_title="Date", yaxis_title="Price")
+fig.update_layout(height=500)
 st.plotly_chart(fig, use_container_width=True)
 
-# -------------------------
-# RETURNS
-# -------------------------
-df['Returns'] = df['Close'].pct_change()
+# Stationarity Check
+st.subheader("📉 Stationarity Check (ADF Test)")
 
-st.subheader("📉 Daily Returns")
-st.line_chart(df['Returns'])
+def check_stationarity(series):
+    result = adfuller(series.dropna())
+    return result[1]
 
-# -------------------------
-# ADF TEST
-# -------------------------
-st.subheader("🧪 Stationarity Test (ADF)")
+p_value = check_stationarity(data['Close'])
 
-result = adfuller(df['Close'].dropna())
+st.write(f"p-value: {p_value:.5f}")
 
-st.write(f"ADF Statistic: {result[0]}")
-st.write(f"p-value: {result[1]}")
-
-if result[1] < 0.05:
-    st.success("Series is Stationary")
+if p_value < 0.05:
+    st.success("Series is Stationary ✅")
+    ts = data['Close']
+    d_order = 0
 else:
-    st.warning("Series is NOT Stationary")
+    st.warning("Series is NOT Stationary ⚠️ → Applying Differencing")
+    ts = data['Close'].diff().dropna()
+    d_order = 1
 
-# -------------------------
-# ARIMA MODEL
-# -------------------------
-st.subheader("🔮 ARIMA Forecast")
+# ARIMA Model
+st.subheader("🤖 ARIMA Forecast")
 
-model = ARIMA(df['Close'], order=(5,1,0))
-model_fit = model.fit()
+try:
+    model = ARIMA(data['Close'], order=(5, d_order, 0))
+    model_fit = model.fit()
 
-forecast = model_fit.forecast(steps=forecast_days)
+    forecast = model_fit.forecast(steps=forecast_days)
+    future_dates = pd.date_range(start=data.index[-1], periods=forecast_days+1, freq='B')[1:]
 
-future_dates = pd.date_range(start=df.index[-1], periods=forecast_days+1, freq='B')[1:]
+    # Plot forecast
+    fig2 = go.Figure()
 
-# Plot forecast
-fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(x=data.index, y=data['Close'], name="Actual"))
+    fig2.add_trace(go.Scatter(x=future_dates, y=forecast, name="Forecast", line=dict(dash='dash')))
 
-fig2.add_trace(go.Scatter(
-    x=df.index, y=df['Close'],
-    mode='lines', name='Actual'
-))
+    fig2.update_layout(height=500)
+    st.plotly_chart(fig2, use_container_width=True)
 
-fig2.add_trace(go.Scatter(
-    x=future_dates, y=forecast,
-    mode='lines', name='Forecast'
-))
+    st.dataframe(pd.DataFrame({"Date": future_dates, "Forecast": forecast}).set_index("Date"))
 
-fig2.update_layout(title="Forecast vs Actual")
+except Exception as e:
+    st.error(f"Error in ARIMA model: {e}")
 
-st.plotly_chart(fig2, use_container_width=True)
+st.markdown("---")
+st.markdown("### 🚀 Features:")
+st.markdown("- Multiple stock selection")
+st.markdown("- Candlestick, Line, Bar charts")
+st.markdown("- Automatic stationarity check")
+st.markdown("- ARIMA forecasting")
 
-# -------------------------
-# RAW DATA
-# -------------------------
-if st.checkbox("Show Raw Data"):
-    st.write(df.tail())
+# Run command
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ▶️ Run App:")
+st.sidebar.code("streamlit run streamlit_app.py")
