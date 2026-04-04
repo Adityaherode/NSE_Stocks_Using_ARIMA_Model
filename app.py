@@ -79,6 +79,11 @@ else:
     st.warning("⚠️ Data is NOT Stationary → Applying Differencing")
     stationary_series = df['Close'].diff().dropna()
 
+check_stationarity(data['Close'])
+
+data['Close_Diff']=data['Close'].diff().dropna()
+check_stationarity(data['Close_Diff'])
+
 # -------------------------------
 # ARIMA Model
 # -------------------------------
