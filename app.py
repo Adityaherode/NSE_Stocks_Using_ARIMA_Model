@@ -2,125 +2,138 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import datetime as dt
+import datetime as d
 import plotly.graph_objects as go
 from statsmodels.tsa.stattools import adfuller
 from statsmodels.tsa.arima.model import ARIMA
-import warnings
-warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Stock Forecast App", layout="wide")
+st.set_page_config(page_title="Stock Forecast Dashboard", layout="wide")
 
-# Title
-st.title("📈 Stock Market Analysis & Forecasting")
+st.title("📊 IT Stocks Forecasting Dashboard")
 
-# Sidebar Inputs
+# -------------------------------
+# Stock List
+# -------------------------------
 stocks = {
     "TCS": "TCS.NS",
-    "WIPRO": "WIPRO.NS",
-    "INFOSYS": "INFY.NS",
-    "HCLTECH": "HCLTECH.NS",
-    "TECHM": "TECHM.NS",
-    "LTIM": "LTIM.NS",
-    "PERSISTENT": "PERSISTENT.NS",
+    "Wipro": "WIPRO.NS",
+    "Infosys": "INFY.NS",
+    "HCLTech": "HCLTECH.NS",
+    "Tech Mahindra": "TECHM.NS",
+    "LTIMindtree": "LTIM.NS",
+    "Persistent": "PERSISTENT.NS",
     "OFSS": "OFSS.NS",
-    "COFORGE": "COFORGE.NS",
-    "MPHASIS": "MPHASIS.NS"
+    "Coforge": "COFORGE.NS",
+    "Mphasis": "MPHASIS.NS"
 }
 
+# -------------------------------
+# Sidebar
+# -------------------------------
 selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
-chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "Line", "Bar"])
-forecast_days = st.sidebar.slider("Forecast Days", 5, 30, 10)
+start_date = st.sidebar.date_input("Start Date", d.date(2025, 1, 1))
+end_date = st.sidebar.date_input("End Date", d.date.today())
+chart_type = st.sidebar.radio("Chart Type", ["Candlestick", "Line", "Bar"])
 
-start = st.sidebar.date_input("Start Date", dt.date(2025, 1, 1))
-end = st.sidebar.date_input("End Date", dt.date.today())
-
+# -------------------------------
 # Load Data
-data = yf.download(stocks[selected_stock], start=start, end=end)
-data.dropna(inplace=True)
+# -------------------------------
+df = yf.download(stocks[selected_stock], start=start_date, end=end_date)
 
-# ----------- CHARTS -------------
-st.subheader(f"{selected_stock} Stock Chart")
+if df.empty:
+    st.error("No data found!")
+    st.stop()
+
+# -------------------------------
+# Stationarity Function
+# -------------------------------
+def make_stationary(series):
+    result = adfuller(series.dropna())
+    p_value = result[1]
+
+    if p_value < 0.05:
+        return series, "Already Stationary ✅"
+    else:
+        diff_series = series.diff().dropna()
+        return diff_series, "Converted to Stationary using Differencing 🔁"
+
+# -------------------------------
+# Apply Stationarity
+# -------------------------------
+stationary_data, status = make_stationary(df['Close'])
+
+st.write(f"### 📌 Stationarity Status: {status}")
+
+# -------------------------------
+# ARIMA Model
+# -------------------------------
+model = ARIMA(df['Close'], order=(5, 1, 0))
+model_fit = model.fit()
+
+forecast = model_fit.forecast(steps=10)
+future_dates = pd.date_range(start=df.index[-1], periods=11, freq='B')[1:]
+
+# -------------------------------
+# Chart Visualization (Single Graph)
+# -------------------------------
+fig = go.Figure()
 
 if chart_type == "Candlestick":
-    fig = go.Figure(data=[go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close']
-    )])
-    st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['Open'],
+        high=df['High'],
+        low=df['Low'],
+        close=df['Close'],
+        name="Candlestick"
+    ))
 
 elif chart_type == "Line":
-    st.line_chart(data['Close'])
+    fig.add_trace(go.Scatter(
+        x=df.index,
+        y=df['Close'],
+        mode='lines',
+        name='Close Price'
+    ))
 
 elif chart_type == "Bar":
-    st.bar_chart(data['Close'])
-
-
-# ----------- STATIONARITY CHECK -------------
-st.subheader("📊 Stationarity Check (ADF Test)")
-
-def check_stationarity(series):
-    result = adfuller(series.dropna())
-    return result[0], result[1]
-
-adf_stat, p_value = check_stationarity(data['Close'])
-
-st.write(f"ADF Statistic: {adf_stat}")
-st.write(f"p-value: {p_value}")
-
-# Make Stationary
-if p_value > 0.05:
-    st.warning("Series is NOT stationary. Applying differencing...")
-    data['Close'] = data['Close'].diff()
-    data.dropna(inplace=True)
-
-    adf_stat, p_value = check_stationarity(data['Close'])
-
-    st.write("After Differencing:")
-    st.write(f"ADF Statistic: {adf_stat}")
-    st.write(f"p-value: {p_value}")
-else:
-    st.success("Series is already stationary ✅")
-
-
-# ----------- ARIMA MODEL -------------
-st.subheader("📉 Forecasting")
-
-try:
-    model = ARIMA(data['Close'], order=(5,1,0))
-    model_fit = model.fit()
-
-    forecast = model_fit.forecast(steps=forecast_days)
-
-    future_dates = pd.date_range(start=data.index[-1], periods=forecast_days+1, freq='B')[1:]
-
-    forecast_df = pd.DataFrame({
-        "Date": future_dates,
-        "Forecast": forecast
-    })
-
-    # Plot Forecast
-    fig2 = go.Figure()
-
-    fig2.add_trace(go.Scatter(
-        x=data.index,
-        y=data['Close'],
-        name="Actual"
+    fig.add_trace(go.Bar(
+        x=df.index,
+        y=df['Close'],
+        name='Close Price'
     ))
 
-    fig2.add_trace(go.Scatter(
-        x=forecast_df['Date'],
-        y=forecast_df['Forecast'],
-        name="Forecast",
-        line=dict(dash="dash")
-    ))
+# Forecast line
+fig.add_trace(go.Scatter(
+    x=future_dates,
+    y=forecast,
+    mode='lines',
+    name='Forecast',
+    line=dict(dash='dash')
+))
 
-    st.plotly_chart(fig2, use_container_width=True)
+fig.update_layout(
+    title=f"{selected_stock} Stock Price Forecast",
+    xaxis_title="Date",
+    yaxis_title="Price",
+    height=600
+)
 
-    st.dataframe(forecast_df)
+st.plotly_chart(fig, use_container_width=True)
 
-except Exception as e:
-    st.error(f"Model Error: {e}")
+# -------------------------------
+# Show Data
+# -------------------------------
+if st.checkbox("Show Raw Data"):
+    st.write(df.tail())
+
+# -------------------------------
+# Metrics
+# -------------------------------
+st.subheader("📈 Key Metrics")
+
+col1, col2, col3 = st.columns(3)
+
+col1.metric("Latest Price", round(df['Close'].iloc[-1], 2))
+col2.metric("Mean Price", round(df['Close'].mean(), 2))
+col3.metric("Volatility", round(df['Close'].std(), 2))
