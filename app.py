@@ -2,163 +2,121 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import datetime as dt
 import plotly.graph_objects as go
-from statsmodels.tsa.stattools import adfuller
-from statsmodels.tsa.arima.model import ARIMA
-import warnings
+from plotly.subplots import make_subplots
 
-warnings.filterwarnings("ignore")
+st.set_page_config(page_title="NSE Stock Pro Dashboard", layout="wide")
 
-# ------------------------------
-# PAGE CONFIG
-# ------------------------------
-st.set_page_config(page_title="Stock Market Dashboard", layout="wide")
+# ---------- Sidebar ----------
+st.sidebar.title("📊 Stock Controls")
 
-st.title("📈 Stock Market Prediction Dashboard")
-st.markdown("Interactive Stock Analysis & Forecasting App")
+stock = st.sidebar.text_input("Enter NSE Stock Symbol", "TCS.NS")
+start = st.sidebar.date_input("Start Date", pd.to_datetime("2023-01-01"))
+end = st.sidebar.date_input("End Date", pd.to_datetime("today"))
 
-# ------------------------------
-# SIDEBAR
-# ------------------------------
-st.sidebar.header("User Input")
+show_ma20 = st.sidebar.checkbox("Show MA20", True)
+show_ma50 = st.sidebar.checkbox("Show MA50", True)
+show_ma200 = st.sidebar.checkbox("Show MA200", False)
 
-stocks = {
-    "TCS": "TCS.NS",
-    "Wipro": "WIPRO.NS",
-    "Infosys": "INFY.NS",
-    "HCL Tech": "HCLTECH.NS",
-    "Tech Mahindra": "TECHM.NS",
-    "LTIMindtree": "LTIM.NS",
-    "Persistent": "PERSISTENT.NS",
-    "Oracle Financial": "OFSS.NS",
-    "Coforge": "COFORGE.NS",
-    "Mphasis": "MPHASIS.NS"
-}
-
-selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
-
-start_date = st.sidebar.date_input("Start Date", dt.date(2023,1,1))
-end_date = st.sidebar.date_input("End Date", dt.date.today())
-
-forecast_days = st.sidebar.slider("Forecast Days", 5, 60, 10)
-
-# ------------------------------
-# DATA FETCHING
-# ------------------------------
+# ---------- Fetch Data ----------
 @st.cache_data
-def load_data(ticker):
-    data = yf.download(ticker, start=start_date, end=end_date)
-    data.reset_index(inplace=True)
-    return data
+def load_data(stock, start, end):
+    return yf.download(stock, start=start, end=end)
 
-data = load_data(stocks[selected_stock])
+data = load_data(stock, start, end)
 
-st.subheader(f"📊 Data for {selected_stock}")
-st.write(data.tail())
+st.title("📈 NSE Stock Analytics Dashboard")
 
-# ------------------------------
-# CANDLESTICK CHART
-# ------------------------------
-st.subheader("🕯️ Candlestick Chart")
+if not data.empty:
 
-fig = go.Figure(data=[go.Candlestick(
-    x=data['Date'],
-    open=data['Open'],
-    high=data['High'],
-    low=data['Low'],
-    close=data['Close']
-)])
+    # ---------- KPIs ----------
+    st.subheader("📌 Key Metrics")
 
-fig.update_layout(height=500)
-st.plotly_chart(fig, use_container_width=True)
+    col1, col2, col3, col4 = st.columns(4)
 
-# ------------------------------
-# RETURNS
-# ------------------------------
-data['Returns'] = data['Close'].pct_change()
+    col1.metric("Current Price", f"₹{round(data['Close'].iloc[-1],2)}")
+    col2.metric("Day High", f"₹{round(data['High'].iloc[-1],2)}")
+    col3.metric("Day Low", f"₹{round(data['Low'].iloc[-1],2)}")
+    col4.metric("Volume", f"{data['Volume'].iloc[-1]:,}")
 
-st.subheader("📉 Daily Returns")
-st.line_chart(data['Returns'])
+    # ---------- Moving Averages ----------
+    data["MA20"] = data["Close"].rolling(20).mean()
+    data["MA50"] = data["Close"].rolling(50).mean()
+    data["MA200"] = data["Close"].rolling(200).mean()
 
-# ------------------------------
-# STATIONARITY FUNCTION
-# ------------------------------
-def make_stationary(series):
-    result = adfuller(series.dropna())
-    
-    if result[1] < 0.05:
-        return series, 0  # already stationary
-    else:
-        diff_series = series.diff().dropna()
-        return diff_series, 1
+    # ---------- RSI ----------
+    delta = data["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -1 * delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    data["RSI"] = 100 - (100 / (1 + rs))
 
-# ------------------------------
-# ARIMA MODEL
-# ------------------------------
-st.subheader("🔮 Stock Price Prediction (ARIMA)")
+    # ---------- Candlestick + Volume ----------
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True,
+                        vertical_spacing=0.05,
+                        row_heights=[0.6, 0.2, 0.2])
 
-close_data = data.set_index('Date')['Close']
+    # Candlestick
+    fig.add_trace(go.Candlestick(
+        x=data.index,
+        open=data["Open"],
+        high=data["High"],
+        low=data["Low"],
+        close=data["Close"],
+        name="Candlestick"
+    ), row=1, col=1)
 
-stationary_data, d = make_stationary(close_data)
+    # Moving Averages
+    if show_ma20:
+        fig.add_trace(go.Scatter(x=data.index, y=data["MA20"],
+                                 line=dict(width=1),
+                                 name="MA20"), row=1, col=1)
 
-st.write(f"📌 Differencing Applied: {d}")
+    if show_ma50:
+        fig.add_trace(go.Scatter(x=data.index, y=data["MA50"],
+                                 line=dict(width=1),
+                                 name="MA50"), row=1, col=1)
 
-# Simple ARIMA auto config
-model = ARIMA(close_data, order=(5, d, 0))
-model_fit = model.fit()
+    if show_ma200:
+        fig.add_trace(go.Scatter(x=data.index, y=data["MA200"],
+                                 line=dict(width=1),
+                                 name="MA200"), row=1, col=1)
 
-forecast = model_fit.forecast(steps=forecast_days)
+    # Volume
+    fig.add_trace(go.Bar(x=data.index, y=data["Volume"],
+                         name="Volume"), row=2, col=1)
 
-future_dates = pd.date_range(
-    start=close_data.index[-1],
-    periods=forecast_days+1,
-    freq='B'
-)[1:]
+    # RSI
+    fig.add_trace(go.Scatter(x=data.index, y=data["RSI"],
+                             name="RSI"), row=3, col=1)
 
-# ------------------------------
-# PLOT FORECAST
-# ------------------------------
-fig2 = go.Figure()
+    fig.update_layout(height=800, title=f"{stock} Stock Analysis",
+                      xaxis_rangeslider_visible=False)
 
-fig2.add_trace(go.Scatter(
-    x=close_data.index,
-    y=close_data,
-    name="Actual Price"
-))
+    st.plotly_chart(fig, use_container_width=True)
 
-fig2.add_trace(go.Scatter(
-    x=future_dates,
-    y=forecast,
-    name="Forecast",
-    line=dict(color='red', dash='dash')
-))
+    # ---------- Multi Stock Comparison ----------
+    st.subheader("📊 Compare Multiple Stocks")
 
-fig2.update_layout(title="Stock Price Prediction", height=500)
+    multi_stocks = st.multiselect(
+        "Select Stocks for Comparison",
+        ["TCS.NS", "INFY.NS", "RELIANCE.NS", "HDFCBANK.NS"],
+        default=["TCS.NS"]
+    )
 
-st.plotly_chart(fig2, use_container_width=True)
+    if multi_stocks:
+        compare_df = pd.DataFrame()
+        for s in multi_stocks:
+            temp = yf.download(s, start=start, end=end)
+            compare_df[s] = temp["Close"]
 
-# ------------------------------
-# MOVING AVERAGE
-# ------------------------------
-st.subheader("📊 Moving Averages")
+        st.line_chart(compare_df)
 
-ma1 = st.slider("Short MA", 5, 50, 20)
-ma2 = st.slider("Long MA", 50, 200, 100)
+    # ---------- Raw Data ----------
+    with st.expander("🔍 View Raw Data"):
+        st.dataframe(data)
 
-data['MA1'] = data['Close'].rolling(ma1).mean()
-data['MA2'] = data['Close'].rolling(ma2).mean()
-
-fig3 = go.Figure()
-
-fig3.add_trace(go.Scatter(x=data['Date'], y=data['Close'], name='Close'))
-fig3.add_trace(go.Scatter(x=data['Date'], y=data['MA1'], name=f'MA{ma1}'))
-fig3.add_trace(go.Scatter(x=data['Date'], y=data['MA2'], name=f'MA{ma2}'))
-
-st.plotly_chart(fig3, use_container_width=True)
-
-# ------------------------------
-# FOOTER
-# ------------------------------
-st.markdown("---")
-st.markdown("Made with ❤️ using Streamlit")
+else:
+    st.error("No data found. Please check stock symbol.")
