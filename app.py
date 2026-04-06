@@ -43,15 +43,21 @@ def check_stationarity(series):
     result = adfuller(series.dropna())
     return result[1]
 
-p_value = check_stationarity(df['Close'])
+check_stationarity(df['Close'])
 
-if p_value < 0.05:
-    st.success("✅ Data is Stationary")
-    stationary_series = df['Close']
+st.success("✅ Data is Stationary")
+['Close_Diff']=df['Close'].diff().dropna()
+check_stationarity(t['Close_Diff'])
+
+#if p_value < 0.05:
+    #st.success("✅ Data is Stationary")
+   # stationary_series = df['Close']
           
-else:st.success("✅ Data is Stationary")
-    df['Close_Diff']=df['Close'].diff().dropna()
-    check_stationarity(df['Close_Diff'])
+#else:
+ #   st.warning("⚠️ Data is NOT Stationary → Applying Differencing")
+  #  stationary_series = df['Close'].diff().dropna()
+
+
 
 
 # ARIMA Model
