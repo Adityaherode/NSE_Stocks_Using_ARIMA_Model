@@ -48,7 +48,8 @@ p_value = check_stationarity(df['Close'])
 if p_value < 0.05:
     st.success("✅ Data is Stationary")
     stationary_series = df['Close']
-else:
+          
+else:st.success("✅ Data is Stationary")
     df['Close_Diff']=df['Close'].diff().dropna()
     check_stationarity(df['Close_Diff'])
 
