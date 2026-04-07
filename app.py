@@ -16,7 +16,7 @@ st.set_page_config(page_title="Stock Forecast App", layout="wide")
 st.title("📊 IT Stocks Forecast Dashboard")
 
 # -------------------------------
-# Stock Dictionary (CORRECT SYMBOLS)
+# Stock Dictionary
 # -------------------------------
 stocks = {
     "TCS": "TCS.NS",
@@ -37,6 +37,7 @@ stocks = {
 st.sidebar.header("Settings")
 
 selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
+stock_symbol = stocks[selected_stock]
 
 start_date = st.sidebar.date_input("Start Date", d.date(2020, 1, 1))
 end_date = st.sidebar.date_input("End Date", d.date.today())
@@ -46,9 +47,9 @@ chart_type = st.sidebar.radio("Chart Type", ["Candlestick", "Line", "Bar"])
 # -------------------------------
 # Load Data
 # -------------------------------
-df = yf.download(stocks[selected_stock], start=start_date, end=end_date)
+df = yf.download(stock_symbol, start=start_date, end=end_date)
 
-# FIX: ensure proper columns
+# Fix column issue
 if isinstance(df.columns, pd.MultiIndex):
     df.columns = df.columns.get_level_values(0)
 
@@ -58,25 +59,19 @@ if df.empty:
     st.stop()
 
 # -------------------------------
-# Show Data Preview
-# -------------------------------
-if st.checkbox("Show Raw Data"):
-    st.write(df.tail())
-
-# -------------------------------
-# Stationarity Check
-# -------------------------------
 # Show Data
 # -------------------------------
-st.subheader(f"{stock_name} Data")
+st.subheader(f"{selected_stock} Data")
 st.write(df.tail())
+
+if st.checkbox("Show Raw Data"):
+    st.write(df)
 
 # -------------------------------
 # Returns + Stationarity
 # -------------------------------
 df['Returns'] = df['Close'].pct_change()
 
-# ADF Test
 def check_stationarity(series):
     result = adfuller(series.dropna())
     return result[1]
@@ -84,20 +79,13 @@ def check_stationarity(series):
 p_value = check_stationarity(df['Close'])
 
 st.subheader("📊 Stationarity Check")
-st.write(f"p-value: {p_value}")
-
-# Convert Non-stationary → Stationary
-if p_value > 0.05:
-    st.write("Series is NOT stationary → Applying Differencing")
-    df['Close'] = df['Close'].diff()
-    df.dropna(inplace=True)
-else:
-    st.write("Series is already stationary")
+st.write(f"p-value: {p_value:.5f}")
 
 # -------------------------------
-# ARIMA Model
+# ARIMA Model (FIXED LOGIC)
 # -------------------------------
 try:
+    # DO NOT manually difference, let ARIMA handle it
     model = ARIMA(df['Close'], order=(5,1,0))
     model_fit = model.fit()
 
@@ -109,7 +97,7 @@ except Exception as e:
     st.stop()
 
 # -------------------------------
-# Plot Graph (MAIN FIX)
+# Plot Graph
 # -------------------------------
 fig = go.Figure()
 
@@ -154,7 +142,6 @@ fig.update_layout(
     height=600
 )
 
-# IMPORTANT LINE (graph display)
 st.plotly_chart(fig, use_container_width=True)
 
 # -------------------------------
