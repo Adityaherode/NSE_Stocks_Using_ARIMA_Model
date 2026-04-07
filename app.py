@@ -38,7 +38,7 @@ st.sidebar.header("Settings")
 
 selected_stock = st.sidebar.selectbox("Select Stock", list(stocks.keys()))
 
-start_date = st.sidebar.date_input("Start Date", d.date(2025, 1, 1))
+start_date = st.sidebar.date_input("Start Date", d.date(2020, 1, 1))
 end_date = st.sidebar.date_input("End Date", d.date.today())
 
 chart_type = st.sidebar.radio("Chart Type", ["Candlestick", "Line", "Bar"])
