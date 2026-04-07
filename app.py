@@ -66,18 +66,33 @@ if st.checkbox("Show Raw Data"):
 # -------------------------------
 # Stationarity Check
 # -------------------------------
+# Show Data
+# -------------------------------
+st.subheader(f"{stock_name} Data")
+st.write(df.tail())
+
+# -------------------------------
+# Returns + Stationarity
+# -------------------------------
+df['Returns'] = df['Close'].pct_change()
+
+# ADF Test
 def check_stationarity(series):
     result = adfuller(series.dropna())
     return result[1]
 
 p_value = check_stationarity(df['Close'])
 
-if p_value < 0.05:
-    st.success("✅ Data is Stationary")
-    stationary_series = df['Close']
+st.subheader("📊 Stationarity Check")
+st.write(f"p-value: {p_value}")
+
+# Convert Non-stationary → Stationary
+if p_value > 0.05:
+    st.write("Series is NOT stationary → Applying Differencing")
+    df['Close'] = df['Close'].diff()
+    df.dropna(inplace=True)
 else:
-    st.warning("⚠️ Data is NOT Stationary → Applying Differencing")
-    stationary_series = df['Close'].diff().dropna()
+    st.write("Series is already stationary")
 
 # -------------------------------
 # ARIMA Model
