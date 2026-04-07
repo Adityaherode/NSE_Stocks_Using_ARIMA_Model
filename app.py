@@ -106,20 +106,38 @@ elif chart_type == "Candlestick":
         name="Candlestick"
     ))
 
-# ---- Forecast ----
+
+# SINGLE GRAPH OUTPUT
+st.plotly_chart(fig, use_container_width=True)
+
+import plotly.graph_objects as go
+
+st.subheader("📈 Stock Chart + Prediction")
+
+fig = go.Figure()
+
+# Actual price line
+fig.add_trace(go.Scatter(
+    x=df.index,
+    y=df['Close'],
+    mode='lines',
+    name='Actual Price'
+))
+
+# Forecast line
 fig.add_trace(go.Scatter(
     x=future_dates,
     y=forecast,
-    name="Prediction",
-    line=dict(dash="dash")
+    mode='lines',
+    name='Prediction',
+    line=dict(dash='dash')
 ))
 
 fig.update_layout(
-    title=f"{stock_name} Stock Forecast",
+    title="Stock Price Prediction",
     xaxis_title="Date",
-    yaxis_title="Price",
-    template="plotly_dark"
+    yaxis_title="Price"
 )
 
-# SINGLE GRAPH OUTPUT
+# IMPORTANT: THIS LINE SHOWS GRAPH IN STREAMLIT
 st.plotly_chart(fig, use_container_width=True)
