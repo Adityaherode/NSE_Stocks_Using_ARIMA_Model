@@ -86,7 +86,8 @@ else:
     stationary_series = df['Close'].diff().dropna()
 
 st.subheader("📊 Stationarity Check")
-st.write(f"p-value: {p_value:.5f}")
+st.write(f"ADF Statistic: {ADF_Statistic:.5f}")
+st.write(f"p-value: {P_value:.5f}")
 
 # -------------------------------
 # ARIMA Model (FIXED LOGIC)
