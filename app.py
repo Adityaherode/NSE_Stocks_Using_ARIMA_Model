@@ -78,6 +78,13 @@ def check_stationarity(series):
 
 p_value = check_stationarity(df['Close'])
 
+if p_value < 0.05:
+    st.success("✅ Data is Stationary")
+    stationary_series = df['Close']
+else:
+    st.warning("⚠️ Data is NOT Stationary → Applying Differencing")
+    stationary_series = df['Close'].diff().dropna()
+
 st.subheader("📊 Stationarity Check")
 st.write(f"p-value: {p_value:.5f}")
 
