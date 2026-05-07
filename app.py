@@ -86,7 +86,6 @@ else:
     stationary_series = df['Close'].diff().dropna()
 
 st.subheader("📊 Stationarity Check")
-st.write(f"ADF Statistic: {ADF_Statistic: }")
 st.write(f"p-value: {P_value:.5f}")
 
 # -------------------------------
